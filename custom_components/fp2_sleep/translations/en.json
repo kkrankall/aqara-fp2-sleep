@@ -141,7 +141,7 @@
   "services": {
     "import_history": {
       "name": "Import past nights",
-      "description": "Reads past nights' sleep stages from Aqara's history (it keeps about a week) and adds their night totals to the long-term statistics, so charts of past nights fill in. Hours that already have statistics are left as they are.",
+      "description": "Reads past nights' sleep stages from Aqara's history (it keeps about two weeks) and adds their night totals to the long-term statistics, so charts of past nights fill in. Hours that already have statistics are left as they are.",
       "fields": {
         "nights": {
           "name": "Nights",

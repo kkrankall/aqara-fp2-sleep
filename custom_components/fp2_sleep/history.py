@@ -5,7 +5,7 @@ writes the hourly statistics the night-total sensors would have recorded,
 so charts of past nights start filled in. Hours that already have
 statistics are left as they are.
 
-Aqara keeps roughly a week of history. A night is imported only when the
+Aqara keeps about two weeks of history. A night is imported only when the
 log also holds stage changes from the 24 hours before it, which shows the
 whole night is still there; otherwise the oldest night could be cut short
 and read as a short night.

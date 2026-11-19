@@ -57,8 +57,8 @@ by morning.
 The action **Aqara FP2 Sleep: Import past nights** (`fp2_sleep.import_history`)
 reads past nights from Aqara's history log and adds their night totals to
 Home Assistant's long-term statistics, so charts of past nights fill in
-right after setup. Aqara keeps roughly a week; nights it no longer has are
-skipped, and a night is imported only when the log also covers the day
+right after setup. Aqara keeps about two weeks (15 days on a US account in
+November 2026); nights it no longer has are skipped, and a night is imported only when the log also covers the day
 before it, so the oldest night can't come in cut short. Hours that already
 have statistics are never changed. With `nights` (1-30, default 30) it tries
 that many nights back; the response lists what happened to each.
