@@ -9,6 +9,8 @@ Matter. This integration reads it the way the Aqara Home app does, through
 Aqara's app API, with your Aqara Home account. There is no developer
 account, API key, MQTT broker or add-on to set up.
 
+![The sleep card in light and dark themes: 9h 31m asleep, a hypnogram of the night's stages, the light, deep, REM and awake breakdown, and heart rate, breathing and movement through the night](https://raw.githubusercontent.com/kkrankall/aqara-fp2-sleep/main/docs/images/card.png)
+
 ## Setup
 
 1. In the Aqara Home app, set the FP2's work mode to **Sleep monitoring**.
@@ -64,14 +66,38 @@ show_vitals: true      # optional
 
 It shows time asleep, when sleep started and ended, a hypnogram of the
 night by Aqara's times, the stage breakdown, and heart rate, breathing and
-movement through the night. It also works with the SleepRadar app's
-entities, drawing stages by arrival time.
+movement through the night. It follows the dashboard's light or dark theme
+and stacks the vitals on narrow screens. It also works with the SleepRadar
+app's entities, drawing stages by arrival time.
+
+<img src="https://raw.githubusercontent.com/kkrankall/aqara-fp2-sleep/main/docs/images/card-phone.png" alt="The sleep card at phone width, with heart rate, breathing and movement stacked" width="360">
+
+The screenshots use made-up data.
 
 ## Polling
 
-Every minute from 18:00 to 12:00 and while someone is in bed, otherwise
-every five minutes. The night's stage changes are re-read every five
-minutes, the device list (name, firmware, room) every six hours.
+By default Aqara is polled every minute from 18:00 to 12:00 and while
+someone is in bed, and every five minutes otherwise.
+
+To poll only when someone is around, pick a local presence sensor for the
+same room under **Settings › Devices & services › Aqara FP2 Sleep ›
+Configure**, for example the FP2's own presence sensor in HomeKit. Then:
+
+- while the sensor sees someone, Aqara is polled every minute, and the
+  moment it turns on there is an immediate read;
+- after it clears, polling stays at every minute for 30 minutes, because
+  Aqara's last stage change (out of bed) arrives up to ~20 minutes late;
+- while the room is empty, Aqara is polled every 30 minutes, which keeps
+  FP2 online, the sleep-mode repair and the 18:00 night rollover current;
+- if the sensor becomes unavailable, polling carries on as if someone were
+  there.
+
+Nothing is lost while polling is idle: the night totals, fell-asleep and
+woke-up times come from Aqara's history log, and each read picks up from
+the last one.
+
+The night's stage changes are re-read at most every five minutes, the device
+list (name, firmware, room) every six hours.
 
 ## Notes
 
