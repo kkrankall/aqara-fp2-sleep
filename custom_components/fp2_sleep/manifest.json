@@ -5,6 +5,10 @@
     "frontend",
     "http"
   ],
+  "categories": [
+    "health_wellbeing",
+    "sensors.motion_presence"
+  ],
   "codeowners": [
     "@kkrankall"
   ],

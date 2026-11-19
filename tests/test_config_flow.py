@@ -20,7 +20,7 @@ from custom_components.fp2_sleep.const import (
 
 from .conftest import DID, OTHER_DID, PASSWORD
 
-SIGN_IN = {CONF_ACCOUNT: " me@example.com ", CONF_PASSWORD: PASSWORD, CONF_REGION: "USA"}
+SIGN_IN = {CONF_ACCOUNT: " me@example.com ", CONF_PASSWORD: PASSWORD, CONF_REGION: "usa"}
 
 
 async def start(hass):

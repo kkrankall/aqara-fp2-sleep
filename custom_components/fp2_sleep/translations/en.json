@@ -49,23 +49,33 @@
   "selector": {
     "region": {
       "options": {
-        "USA": "Americas and other regions (USA server)",
-        "EU": "Europe",
-        "CN": "Mainland China",
-        "RU": "Russia",
-        "KR": "South Korea"
+        "usa": "Americas and other regions (USA server)",
+        "eu": "Europe",
+        "cn": "Mainland China",
+        "ru": "Russia",
+        "kr": "South Korea"
       }
     }
   },
   "entity": {
     "binary_sensor": {
-      "fp2_online": { "name": "FP2 online" },
-      "connection_problem": { "name": "Connection problem" }
+      "fp2_online": {
+        "name": "FP2 online"
+      },
+      "connection_problem": {
+        "name": "Connection problem"
+      }
     },
     "sensor": {
-      "heart_rate": { "name": "Heart rate" },
-      "respiration_rate": { "name": "Respiration rate" },
-      "body_movement": { "name": "Body movement" },
+      "heart_rate": {
+        "name": "Heart rate"
+      },
+      "respiration_rate": {
+        "name": "Respiration rate"
+      },
+      "body_movement": {
+        "name": "Body movement"
+      },
       "sleep_stage": {
         "name": "Sleep stage",
         "state": {
@@ -77,13 +87,27 @@
           "deep": "Deep sleep"
         }
       },
-      "sleep_state": { "name": "Sleep state code" },
-      "night_asleep": { "name": "Night asleep" },
-      "night_light_sleep": { "name": "Night light sleep" },
-      "night_deep_sleep": { "name": "Night deep sleep" },
-      "night_rem_sleep": { "name": "Night REM sleep" },
-      "fell_asleep": { "name": "Fell asleep" },
-      "woke_up": { "name": "Woke up" },
+      "sleep_state": {
+        "name": "Sleep state code"
+      },
+      "night_asleep": {
+        "name": "Night asleep"
+      },
+      "night_light_sleep": {
+        "name": "Night light sleep"
+      },
+      "night_deep_sleep": {
+        "name": "Night deep sleep"
+      },
+      "night_rem_sleep": {
+        "name": "Night REM sleep"
+      },
+      "fell_asleep": {
+        "name": "Fell asleep"
+      },
+      "woke_up": {
+        "name": "Woke up"
+      },
       "fp2_mode": {
         "name": "FP2 mode",
         "state": {

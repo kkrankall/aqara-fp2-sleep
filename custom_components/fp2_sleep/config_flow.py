@@ -53,8 +53,13 @@ COUNTRY_REGIONS = {"CN": "CN", "RU": "RU", "KR": "KR"}
 PASSWORD_SELECTOR = TextSelector(
     TextSelectorConfig(type=TextSelectorType.PASSWORD, autocomplete="current-password")
 )
+# Translation keys must be lowercase; the region codes are upper case.
 REGION_SELECTOR = SelectSelector(
-    SelectSelectorConfig(options=list(REGIONS), translation_key="region", mode=SelectSelectorMode.DROPDOWN)
+    SelectSelectorConfig(
+        options=[region.lower() for region in REGIONS],
+        translation_key="region",
+        mode=SelectSelectorMode.DROPDOWN,
+    )
 )
 
 
@@ -98,7 +103,7 @@ class FP2SleepConfigFlow(ConfigFlow, domain=DOMAIN):
             self._data = {
                 CONF_ACCOUNT: user_input[CONF_ACCOUNT].strip(),
                 CONF_PASSWORD_MD5: password_md5(user_input[CONF_PASSWORD]),
-                CONF_REGION: user_input[CONF_REGION],
+                CONF_REGION: user_input[CONF_REGION].upper(),
                 CONF_PHONE_ID: new_phone_id(),
             }
             self._client = self._make_client(self._data)
@@ -130,7 +135,7 @@ class FP2SleepConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_ACCOUNT): TextSelector(TextSelectorConfig(autocomplete="username")),
                 vol.Required(CONF_PASSWORD): PASSWORD_SELECTOR,
                 vol.Required(
-                    CONF_REGION, default=default_region(self.hass.config.country)
+                    CONF_REGION, default=default_region(self.hass.config.country).lower()
                 ): REGION_SELECTOR,
             }
         )
