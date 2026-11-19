@@ -1,0 +1,5 @@
+{
+  "name": "Aqara FP2 Sleep",
+  "homeassistant": "2025.2.0",
+  "render_readme": true
+}

@@ -1,0 +1,103 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sign in to Aqara Home",
+        "description": "Use the account you sign in to the Aqara Home app with. The FP2 must be in Sleep monitoring mode.",
+        "data": {
+          "account": "Email or phone number",
+          "password": "Password",
+          "region": "Server region"
+        },
+        "data_description": {
+          "region": "The region chosen in the Aqara Home app (Profile › Settings › Region)."
+        }
+      },
+      "device": {
+        "title": "Choose the FP2",
+        "data": {
+          "device_id": "FP2"
+        }
+      },
+      "manual": {
+        "title": "Enter the FP2's ID",
+        "description": "No FP2 was found on this account. In the Aqara Home app open the FP2 › ⋯ › Device info and enter its ID (lumi1.…), or its MAC address.",
+        "data": {
+          "device_id": "FP2 device ID"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "Aqara no longer accepts the saved sign-in for {account}. Enter the Aqara Home password.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Aqara didn't accept the account, password or region.",
+      "cannot_connect": "No answer from Aqara. Check Home Assistant's internet connection and try again.",
+      "no_permission": "This account has no access to that device in this region.",
+      "rejected": "Aqara rejected the request. Check for an update to this integration.",
+      "unknown": "Unexpected error. See the Home Assistant log."
+    },
+    "abort": {
+      "already_configured": "This FP2 is already set up.",
+      "reauth_successful": "Signed in again."
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "USA": "Americas and other regions (USA server)",
+        "EU": "Europe",
+        "CN": "Mainland China",
+        "RU": "Russia",
+        "KR": "South Korea"
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "fp2_online": { "name": "FP2 online" },
+      "connection_problem": { "name": "Connection problem" }
+    },
+    "sensor": {
+      "heart_rate": { "name": "Heart rate" },
+      "respiration_rate": { "name": "Respiration rate" },
+      "body_movement": { "name": "Body movement" },
+      "sleep_stage": {
+        "name": "Sleep stage",
+        "state": {
+          "out_of_bed": "Out of bed",
+          "in_bed": "In bed",
+          "awake": "Awake",
+          "rem": "REM sleep",
+          "light": "Light sleep",
+          "deep": "Deep sleep"
+        }
+      },
+      "sleep_state": { "name": "Sleep state code" },
+      "night_asleep": { "name": "Night asleep" },
+      "night_light_sleep": { "name": "Night light sleep" },
+      "night_deep_sleep": { "name": "Night deep sleep" },
+      "night_rem_sleep": { "name": "Night REM sleep" },
+      "fell_asleep": { "name": "Fell asleep" },
+      "woke_up": { "name": "Woke up" },
+      "fp2_mode": {
+        "name": "FP2 mode",
+        "state": {
+          "zone_detection": "Zone detection",
+          "fall_detection": "Fall detection",
+          "sleep_monitoring": "Sleep monitoring"
+        }
+      }
+    }
+  },
+  "issues": {
+    "not_sleep_mode": {
+      "title": "{name} is not in Sleep monitoring mode",
+      "description": "The FP2 only measures heart rate, breathing and sleep stages in Sleep monitoring mode. In the Aqara Home app open the FP2 › ⋯ › Work mode and choose Sleep monitoring."
+    }
+  }
+}
