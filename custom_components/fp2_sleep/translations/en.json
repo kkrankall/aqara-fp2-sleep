@@ -137,5 +137,21 @@
         }
       }
     }
+  },
+  "services": {
+    "import_history": {
+      "name": "Import past nights",
+      "description": "Reads past nights' sleep stages from Aqara's history (it keeps about a week) and adds their night totals to the long-term statistics, so charts of past nights fill in. Hours that already have statistics are left as they are.",
+      "fields": {
+        "nights": {
+          "name": "Nights",
+          "description": "How many nights back to try. Nights Aqara no longer has are skipped."
+        },
+        "config_entry_id": {
+          "name": "FP2",
+          "description": "Only this FP2. Leave empty for all."
+        }
+      }
+    }
   }
 }

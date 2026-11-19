@@ -3,7 +3,8 @@
   "name": "Aqara FP2 Sleep",
   "after_dependencies": [
     "frontend",
-    "http"
+    "http",
+    "recorder"
   ],
   "categories": [
     "health_wellbeing",
@@ -18,5 +19,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/kkrankall/aqara-fp2-sleep/issues",
   "requirements": [],
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

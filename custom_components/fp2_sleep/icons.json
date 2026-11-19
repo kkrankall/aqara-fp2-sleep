@@ -1,12 +1,23 @@
 {
   "entity": {
     "binary_sensor": {
-      "connection_problem": { "default": "mdi:cloud-check-outline", "state": { "on": "mdi:cloud-alert-outline" } }
+      "connection_problem": {
+        "default": "mdi:cloud-check-outline",
+        "state": {
+          "on": "mdi:cloud-alert-outline"
+        }
+      }
     },
     "sensor": {
-      "heart_rate": { "default": "mdi:heart-pulse" },
-      "respiration_rate": { "default": "mdi:lungs" },
-      "body_movement": { "default": "mdi:run" },
+      "heart_rate": {
+        "default": "mdi:heart-pulse"
+      },
+      "respiration_rate": {
+        "default": "mdi:lungs"
+      },
+      "body_movement": {
+        "default": "mdi:run"
+      },
       "sleep_stage": {
         "default": "mdi:sleep",
         "state": {
@@ -18,14 +29,35 @@
           "deep": "mdi:power-sleep"
         }
       },
-      "sleep_state": { "default": "mdi:sleep" },
-      "night_asleep": { "default": "mdi:sleep" },
-      "night_light_sleep": { "default": "mdi:weather-night-partly-cloudy" },
-      "night_deep_sleep": { "default": "mdi:power-sleep" },
-      "night_rem_sleep": { "default": "mdi:head-dots-horizontal-outline" },
-      "fell_asleep": { "default": "mdi:bed-clock" },
-      "woke_up": { "default": "mdi:weather-sunset-up" },
-      "fp2_mode": { "default": "mdi:radar" }
+      "sleep_state": {
+        "default": "mdi:sleep"
+      },
+      "night_asleep": {
+        "default": "mdi:sleep"
+      },
+      "night_light_sleep": {
+        "default": "mdi:weather-night-partly-cloudy"
+      },
+      "night_deep_sleep": {
+        "default": "mdi:power-sleep"
+      },
+      "night_rem_sleep": {
+        "default": "mdi:head-dots-horizontal-outline"
+      },
+      "fell_asleep": {
+        "default": "mdi:bed-clock"
+      },
+      "woke_up": {
+        "default": "mdi:weather-sunset-up"
+      },
+      "fp2_mode": {
+        "default": "mdi:radar"
+      }
+    }
+  },
+  "services": {
+    "import_history": {
+      "service": "mdi:database-import-outline"
     }
   }
 }

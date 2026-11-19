@@ -137,6 +137,13 @@ class NightStages:
             t = stop
         return complete
 
+    async def read_window(
+        self, read: HistoryReader, begin: float, end: float, chunk: float = REBUILD_CHUNK_S
+    ) -> bool:
+        """Merge every change between begin and end (epoch s); True when
+        the whole window came back."""
+        return await self._read(read, begin, end, chunk)
+
     def summary(self) -> NightSummary | None:
         """None until the night has been read in full."""
         if not self.complete or self.start is None:
@@ -174,3 +181,32 @@ class NightStages:
             sleep_end=utc(sleep_end),
             awakenings=awakenings,
         )
+
+
+def hourly_values(
+    events: dict[float, str], start: float, end: float, codes: frozenset[str]
+) -> list[tuple[float, float, float, float]]:
+    """(hour start, mean, min, max) in hours for each whole UTC hour between
+    start and end, as the live sensor would have read them: the time from
+    one change to the next counts toward the earlier change's stage once
+    the next change has happened, so the value steps up at each change."""
+    ordered = sorted(events.items())
+    steps = [  # (time the value steps up, by how many hours)
+        (end_s, (end_s - begin) / 3600)
+        for (begin, code), (end_s, _next) in zip(ordered, ordered[1:])
+        if code in codes
+    ]
+
+    def value_at(t: float) -> float:
+        return sum(inc for when, inc in steps if when <= t)
+
+    rows = []
+    hour = -(-start // 3600) * 3600  # first whole hour at or after start
+    while hour + 3600 <= end:
+        low = value_at(hour)
+        rising = [(when, inc) for when, inc in steps if hour < when < hour + 3600]
+        high = low + sum(inc for _, inc in rising)
+        mean = low + sum(inc * (hour + 3600 - when) / 3600 for when, inc in rising)
+        rows.append((hour, round(mean, 4), round(low, 4), round(high, 4)))
+        hour += 3600
+    return rows
