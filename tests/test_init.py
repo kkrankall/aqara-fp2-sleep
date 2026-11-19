@@ -16,6 +16,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, async_
 from custom_components.fp2_sleep.api import password_md5
 from custom_components.fp2_sleep.const import (
     CONF_ACCOUNT,
+    CONF_PRESENCE_ENTITY,
     CONF_DEVICE_ID,
     CONF_PASSWORD_MD5,
     CONF_PHONE_ID,
@@ -33,8 +34,10 @@ def at(hour: int, minute: int = 0) -> datetime:
     return datetime(2026, 11, 18 if hour >= 18 else 19, hour, minute, tzinfo=TZ)
 
 
-@pytest.fixture
-async def entry(hass: HomeAssistant, aqara, freezer: FrozenDateTimeFactory) -> MockConfigEntry:
+ROOM = "binary_sensor.bedroom_presence"
+
+
+async def setup_entry(hass: HomeAssistant, aqara, freezer: FrozenDateTimeFactory, options=None) -> MockConfigEntry:
     await hass.config.async_set_time_zone("America/New_York")
     freezer.move_to(at(3))
     aqara.stage_log = [(ms(at(20, 30)), 4), (ms(at(23, 40)), 5), (ms(at(0, 32)), 4), (ms(at(2, 0)), 2), (ms(at(2, 10)), 4)]
@@ -49,11 +52,17 @@ async def entry(hass: HomeAssistant, aqara, freezer: FrozenDateTimeFactory) -> M
             CONF_PHONE_ID: "PHONE-1",
             CONF_DEVICE_ID: DID,
         },
+        options=options or {},
     )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return entry
+
+
+@pytest.fixture
+async def entry(hass: HomeAssistant, aqara, freezer: FrozenDateTimeFactory) -> MockConfigEntry:
+    return await setup_entry(hass, aqara, freezer)
 
 
 async def test_entities_keep_sleepradars_ids(hass: HomeAssistant, entry) -> None:
@@ -194,3 +203,68 @@ async def test_new_firmware_updates_the_device(hass: HomeAssistant, entry, aqara
     await hass.async_block_till_done()
     device = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, DID), entry.entry_id)
     assert device.sw_version == "1.3.3_0002.0100"
+
+
+
+def queries(aqara) -> int:
+    return sum(1 for _, path, _, _ in aqara.requests if path == "/app/v1.0/lumi/res/query")
+
+
+async def tick(hass: HomeAssistant, freezer, delta: timedelta) -> None:
+    freezer.tick(delta)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+
+async def test_polling_follows_the_presence_sensor(hass: HomeAssistant, aqara, freezer) -> None:
+    hass.states.async_set(ROOM, "on")
+    entry = await setup_entry(hass, aqara, freezer, {CONF_PRESENCE_ENTITY: ROOM})
+    coordinator = entry.runtime_data
+    assert coordinator.update_interval == timedelta(seconds=60)
+
+    # He gets up: Aqara still says light sleep for a while, then out of bed.
+    hass.states.async_set(ROOM, "off")
+    aqara.readings["sleep_state"] = (0, aqara.readings["sleep_state"][1])
+    await tick(hass, freezer, timedelta(seconds=61))
+    assert coordinator.update_interval == timedelta(seconds=60)  # within the hold
+    await tick(hass, freezer, timedelta(minutes=30))
+    assert coordinator.update_interval == timedelta(minutes=30)  # idle
+
+    # Idle: nothing for 29 minutes.
+    before = queries(aqara)
+    await tick(hass, freezer, timedelta(minutes=29))
+    assert queries(aqara) == before
+
+    # Someone walks in: read at once, then every minute.
+    hass.states.async_set(ROOM, "on")
+    await hass.async_block_till_done()
+    assert queries(aqara) == before + 1
+    assert coordinator.update_interval == timedelta(seconds=60)
+    await tick(hass, freezer, timedelta(seconds=61))
+    assert queries(aqara) == before + 2
+
+
+async def test_an_unavailable_sensor_polls_as_if_present(hass: HomeAssistant, aqara, freezer) -> None:
+    freezer.move_to(at(3))
+    hass.states.async_set(ROOM, "off")
+    entry = await setup_entry(hass, aqara, freezer, {CONF_PRESENCE_ENTITY: ROOM})
+    aqara.readings["sleep_state"] = (0, aqara.readings["sleep_state"][1])
+    await tick(hass, freezer, timedelta(minutes=31))
+    assert entry.runtime_data.update_interval == timedelta(minutes=30)
+    hass.states.async_set(ROOM, "unavailable")
+    await hass.async_block_till_done()
+    assert entry.runtime_data.update_interval == timedelta(seconds=60)
+
+
+async def test_options_set_the_presence_sensor(hass: HomeAssistant, entry, aqara) -> None:
+    hass.states.async_set(ROOM, "on")
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "init"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {CONF_PRESENCE_ENTITY: ROOM})
+    await hass.async_block_till_done()
+    assert entry.options == {CONF_PRESENCE_ENTITY: ROOM}
+    assert entry.runtime_data.presence_entity == ROOM  # reloaded with it
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    await hass.async_block_till_done()
+    assert entry.runtime_data.presence_entity is None

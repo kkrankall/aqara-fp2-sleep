@@ -93,19 +93,27 @@ class NightStages:
     start: datetime | None = None
     events: dict[float, str] = field(default_factory=dict)  # epoch s -> code
     complete: bool = False
+    read_until: float | None = None  # end of the last read that came back whole
 
     async def update(self, read: HistoryReader, now: datetime) -> None:
         """Read new stage changes: the whole night the first time (or after
-        a failed read), then the last hour, which catches late uploads."""
+        a failed read), then everything since the last good read plus an
+        hour, which catches late uploads and any gap between reads (idle
+        polling, an outage, a restart)."""
         start = night_start(now)
         if start != self.start:
             self.start, self.events, self.complete = start, {}, False
+            self.read_until = None
         begin = start.timestamp()
         end = now.timestamp()
         if not self.complete:
             self.complete = await self._read(read, begin, end, REBUILD_CHUNK_S)
-        else:
-            await self._read(read, max(begin, end - REFRESH_WINDOW_S), end, REFRESH_WINDOW_S)
+            if self.complete:
+                self.read_until = end
+            return
+        since = (self.read_until or end) - REFRESH_WINDOW_S
+        if await self._read(read, max(begin, since), end, REBUILD_CHUNK_S):
+            self.read_until = end
 
     async def _read(self, read: HistoryReader, begin: float, end: float, chunk: float) -> bool:
         """Merge the changes between begin and end, `chunk` seconds per

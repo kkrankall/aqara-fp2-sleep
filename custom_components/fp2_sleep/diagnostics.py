@@ -38,6 +38,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: FP2Conf
         "device": async_redact_data(coordinator.device, TO_REDACT),
         "last_update_success": coordinator.last_update_success,
         "update_interval": str(coordinator.update_interval),
+        "presence_entity": coordinator.presence_entity,
         "values": data.values if data else None,
         "measured_at": {k: v.isoformat() if v else None for k, v in data.measured_at.items()} if data else None,
         "night": {

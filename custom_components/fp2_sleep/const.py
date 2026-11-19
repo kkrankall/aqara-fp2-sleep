@@ -13,6 +13,8 @@ CONF_ACCOUNT = "account"
 CONF_PASSWORD_MD5 = "password_md5"
 CONF_PHONE_ID = "phone_id"
 CONF_DEVICE_ID = "device_id"
+# Option: a local presence sensor (e.g. the FP2 over HomeKit) to poll by.
+CONF_PRESENCE_ENTITY = "presence_entity"
 
 # The FP2's model id in Aqara's device list.
 FP2_MODEL = "lumi.motion.agl001"
@@ -62,11 +64,16 @@ OFFLINE_CODE = "0"
 
 # A night runs from this local hour to the same hour the next day.
 NIGHT_START_HOUR = 18
-# Poll every minute through the night or while someone is in bed, else every
-# five minutes. The FP2 reports vitals about every 6 s.
+# Without a presence sensor: poll every minute through the night or while
+# someone is in bed, else every five minutes. The FP2 reports vitals about
+# every 6 s.
 FAST_INTERVAL = timedelta(seconds=60)
 SLOW_INTERVAL = timedelta(minutes=5)
 FAST_HOURS_END = 12  # fast polling runs NIGHT_START_HOUR..FAST_HOURS_END
+# With a presence sensor: every minute while someone is there and for
+# PRESENCE_HOLD after they leave, else every IDLE_INTERVAL.
+PRESENCE_HOLD = timedelta(minutes=30)
+IDLE_INTERVAL = timedelta(minutes=30)
 # The night's stage changes are re-read this often (two requests each time).
 NIGHT_REFRESH = timedelta(minutes=5)
 # Device name, firmware and room are re-read this often.

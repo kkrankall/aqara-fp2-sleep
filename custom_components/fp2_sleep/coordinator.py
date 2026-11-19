@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import STATE_OFF
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -20,15 +22,18 @@ from .const import (
     ATTR_ONLINE,
     ATTR_SLEEP_STATE,
     CONF_DEVICE_ID,
+    CONF_PRESENCE_ENTITY,
     DEVICE_REFRESH,
     DOMAIN,
     FAST_HOURS_END,
     FAST_INTERVAL,
+    IDLE_INTERVAL,
     LOGGER,
     NIGHT_REFRESH,
     NIGHT_START_HOUR,
     ONLINE_CODE,
     OFFLINE_CODE,
+    PRESENCE_HOLD,
     QUERY_ATTRS,
     SLEEP_MODE,
     SLEEP_STATE_RESOURCE,
@@ -75,12 +80,56 @@ class FP2Coordinator(DataUpdateCoordinator[FP2Data]):
         self._night_read: datetime | None = None
         self._night_summary: NightSummary | None = None
         self.store: Store[dict[str, str]] = Store(hass, STORE_VERSION, f"{DOMAIN}.{entry.entry_id}")
+        # Optional local presence sensor whose state decides how often to poll.
+        self.presence_entity: str | None = entry.options.get(CONF_PRESENCE_ENTITY) or None
+        self._absent_since: datetime | None = None
 
     async def _async_setup(self) -> None:
         saved = await self.store.async_load() or {}
         if saved.get("token") and saved.get("user_id"):
             self.client.token = saved["token"]
             self.client.user_id = saved["user_id"]
+        if self.presence_entity:
+            state = self.hass.states.get(self.presence_entity)
+            if state is not None and state.state == STATE_OFF:
+                self._absent_since = state.last_changed
+            self.config_entry.async_on_unload(
+                async_track_state_change_event(
+                    self.hass, [self.presence_entity], self._presence_changed
+                )
+            )
+
+    def _present(self) -> bool:
+        """Someone is in the room, or the sensor can't tell (then poll as if
+        someone were, so a broken HomeKit pairing never stops the readings)."""
+        state = self.hass.states.get(self.presence_entity) if self.presence_entity else None
+        return state is None or state.state != STATE_OFF
+
+    @callback
+    def _presence_changed(self, event: Event[EventStateChangedData]) -> None:
+        new = event.data["new_state"]
+        if new is not None and new.state == STATE_OFF:
+            self._absent_since = new.last_changed
+            return
+        self._absent_since = None
+        if self.update_interval != FAST_INTERVAL:
+            # Back from idle: read now rather than at the next idle poll.
+            self.update_interval = FAST_INTERVAL
+            self.config_entry.async_create_background_task(
+                self.hass, self.async_request_refresh(), "fp2_sleep presence refresh"
+            )
+
+    def _next_interval(self, now: datetime, in_bed: bool) -> timedelta:
+        if self.presence_entity:
+            if in_bed or self._present():
+                return FAST_INTERVAL
+            # Aqara's last stage change (out of bed) arrives up to ~20
+            # minutes late, and the night's totals need it.
+            if self._absent_since and dt_util.utcnow() - self._absent_since < PRESENCE_HOLD:
+                return FAST_INTERVAL
+            return IDLE_INTERVAL
+        night = now.hour >= NIGHT_START_HOUR or now.hour < FAST_HOURS_END
+        return FAST_INTERVAL if night or in_bed else SLOW_INTERVAL
 
     def save_session(self, token: str, user_id: str) -> None:
         """Keep the session across restarts, so HA doesn't sign in each start."""
@@ -110,9 +159,7 @@ class FP2Coordinator(DataUpdateCoordinator[FP2Data]):
         self._update_mode_issue(mode_code(data))
 
         stage = code_string(data.values.get(ATTR_SLEEP_STATE))
-        in_bed = stage not in (None, "0")
-        night = now.hour >= NIGHT_START_HOUR or now.hour < FAST_HOURS_END
-        self.update_interval = FAST_INTERVAL if night or in_bed else SLOW_INTERVAL
+        self.update_interval = self._next_interval(now, stage not in (None, "0"))
         return data
 
     async def _refresh_night(self, now: datetime) -> None:

@@ -123,5 +123,19 @@
       "title": "{name} is not in Sleep monitoring mode",
       "description": "The FP2 only measures heart rate, breathing and sleep stages in Sleep monitoring mode. In the Aqara Home app open the FP2 › ⋯ › Work mode and choose Sleep monitoring."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Polling",
+        "description": "Without a presence sensor, Aqara is polled every minute from 6 PM to noon and while someone is in bed, and every 5 minutes otherwise. With one, it is polled every minute while the sensor sees someone and for 30 minutes after, and every 30 minutes while the room is empty. Night totals stay exact either way: they come from Aqara's own log.",
+        "data": {
+          "presence_entity": "Presence sensor to follow"
+        },
+        "data_description": {
+          "presence_entity": "A local sensor for the same room, such as the FP2's presence sensor in HomeKit. If it becomes unavailable, polling continues as if someone were there."
+        }
+      }
+    }
   }
 }

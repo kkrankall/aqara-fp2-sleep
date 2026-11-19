@@ -7,10 +7,13 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_PASSWORD
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -35,6 +38,7 @@ from .const import (
     CONF_DEVICE_ID,
     CONF_PASSWORD_MD5,
     CONF_PHONE_ID,
+    CONF_PRESENCE_ENTITY,
     CONF_REGION,
     DOMAIN,
     FP2_MODEL,
@@ -82,6 +86,11 @@ def _error_key(err: Exception) -> str:
 
 class FP2SleepConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return FP2SleepOptionsFlow()
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
@@ -223,4 +232,23 @@ class FP2SleepConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({vol.Required(CONF_PASSWORD): PASSWORD_SELECTOR}),
             description_placeholders={"account": entry.data[CONF_ACCOUNT]},
             errors=errors,
+        )
+
+
+class FP2SleepOptionsFlow(OptionsFlow):
+    """Poll by a local presence sensor instead of the clock."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_PRESENCE_ENTITY): EntitySelector(
+                    EntitySelectorConfig(domain="binary_sensor")
+                )
+            }
+        )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(schema, self.config_entry.options),
         )

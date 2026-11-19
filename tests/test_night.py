@@ -61,10 +61,11 @@ async def test_wake_time_and_refresh_window() -> None:
     await night.update(reader(log[:-1], calls), at(5, 50))
     first = len(calls)
     assert first == 6  # 18:00 → 05:50 in 2-hour windows
-    # Later updates only re-read the last hour, which brings the late change.
+    # Later updates re-read from an hour before the last good read, which
+    # brings the late change.
     await night.update(reader(log, calls), at(6, 10))
     assert len(calls) == first + 1
-    assert calls[-1][1] - calls[-1][0] == 3_600_000
+    assert calls[-1] == (int(at(4, 50).timestamp() * 1000), int(at(6, 10).timestamp() * 1000))
     summary = night.summary()
     assert summary.sleep_end == at(5, 52).astimezone(timezone.utc)
     assert summary.hours["asleep"] == round(5.5 + (3 * 60 + 42) / 60, 3)
@@ -109,3 +110,24 @@ def test_parsers() -> None:
     assert aqara_seconds(True) is None and aqara_seconds("x") is None and aqara_seconds(5) is None
     assert code_string(4) == "4" and code_string(" 05 ") == "5" and code_string(4.0) == "4"
     assert code_string(True) is None and code_string("4.5") is None and code_string(None) is None
+
+
+async def test_a_gap_between_reads_is_filled() -> None:
+    """Idle polling, an outage or a restart leaves hours unread; the next
+    read starts from the last good one, so no change is missed."""
+    log = [*NIGHT, (at(4, 0), 5), (at(4, 20), 4)]
+    calls: list[tuple[int, int]] = []
+    night = NightStages()
+    await night.update(reader(NIGHT, calls), at(3))
+    first = len(calls)
+
+    async def down(start_ms: int, end_ms: int):
+        raise TimeoutError
+
+    try:
+        await night.update(down, at(4, 30))
+    except TimeoutError:
+        pass
+    await night.update(reader(log, calls), at(6))
+    assert calls[first][0] == int(at(2).timestamp() * 1000)  # an hour before 03:00
+    assert night.summary().hours["deep"] == round(52 / 60 + 20 / 60, 3)
