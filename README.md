@@ -131,13 +131,117 @@ show_vitals: true      # optional
 It shows the sleep score, time asleep against the hours recommended for the
 age, when sleep started and ended, a hypnogram of the night by Aqara's
 times, the stage breakdown, what each part of the score came to, and heart
-rate, breathing and movement through the night. It follows the dashboard's light or dark theme
-and stacks the vitals on narrow screens. It also works with the SleepRadar
-app's entities, drawing stages by arrival time.
+rate, breathing and movement through the night. It follows the dashboard's
+light or dark theme and stacks the vitals on narrow screens. Until tonight
+is over the score shows last night's, marked "Last night". It also works
+with the SleepRadar app's entities, drawing stages by arrival time.
 
-<img src="https://raw.githubusercontent.com/kkrankall/aqara-fp2-sleep/main/docs/images/card-phone.png" alt="The sleep card at phone width, with heart rate, breathing and movement stacked" width="360">
+<img src="https://raw.githubusercontent.com/kkrankall/aqara-fp2-sleep/main/docs/images/card-phone.png" alt="The sleep card at phone width: a score of 86, the recommended 9–12 h and 1h 15m short this week, the score's four parts in two rows, and heart rate, breathing and movement stacked" width="360">
 
 The screenshots use made-up data.
+
+## Charts
+
+Two charts for a dashboard view, with
+[apexcharts-card](https://github.com/RomRider/apexcharts-card) from the
+Marketplace. Both put each night at noon of the morning it ended.
+
+**Score per night**, from the sleep score's `nights` attribute, coloured by
+band:
+
+```yaml
+type: custom:apexcharts-card
+graph_span: 30d
+span:
+  end: day
+header:
+  show: true
+  title: Sleep score
+  show_states: true
+  colorize_states: true
+series:
+  - entity: sensor.aqara_fp2_sleep_sleep_score
+    name: Score
+    type: column
+    show:
+      in_header: false
+    data_generator: |
+      return (entity.attributes.nights || [])
+        .filter((n) => typeof n.score === "number")
+        .map((n) => {
+          const [y, m, d] = n.date.split("-").map(Number);
+          return [new Date(y, m - 1, d, 12).getTime(), n.score];
+        });
+  - entity: sensor.aqara_fp2_sleep_sleep_score
+    name: Last night
+    show:
+      in_chart: false
+      in_header: raw
+apex_config:
+  chart:
+    height: 200
+  plotOptions:
+    bar:
+      colors:
+        ranges:
+          - { from: 0, to: 69.99, color: "#ff7043" }
+          - { from: 70, to: 84.99, color: "#f9a825" }
+          - { from: 85, to: 100, color: "#43a047" }
+  yaxis:
+    min: 0
+    max: 100
+```
+
+**Hours per night** against the recommended minimum. A night runs from 18:00
+to 18:00 and crosses midnight, so daily statistics split it in two; this
+takes each night's largest hourly maximum instead. The 18:00 hour is left
+out: until the first poll after 18:00 the totals still hold the night
+before, and its maximum would show that night's total.
+
+```yaml
+type: custom:apexcharts-card
+graph_span: 30d
+span:
+  end: day
+series:
+  - entity: sensor.aqara_fp2_sleep_night_asleep
+    name: Asleep
+    type: column
+    data_generator: |
+      const res = await hass.callWS({
+        type: "recorder/statistics_during_period",
+        start_time: new Date(new Date(start).getTime() - 30 * 3600e3).toISOString(),
+        end_time: new Date(end).toISOString(),
+        statistic_ids: [entity.entity_id],
+        period: "hour",
+        types: ["max"],
+      });
+      const nights = new Map();
+      for (const row of res[entity.entity_id] || []) {
+        const t = new Date(row.start);
+        if (t.getHours() === 18) continue;
+        const shown = new Date(t);
+        if (shown.getHours() > 18) shown.setDate(shown.getDate() + 1);
+        shown.setHours(12, 0, 0, 0);
+        if (shown < new Date(start)) continue;
+        nights.set(shown.getTime(), Math.max(nights.get(shown.getTime()) || 0, row.max || 0));
+      }
+      return [...nights].sort((a, b) => a[0] - b[0]);
+  - entity: sensor.aqara_fp2_sleep_sleep_score
+    name: Recommended minimum
+    type: line
+    stroke_dash: 5
+    data_generator: |
+      return (entity.attributes.nights || []).map((n) => {
+        const [y, m, d] = n.date.split("-").map(Number);
+        return [new Date(y, m - 1, d, 12).getTime(), n.min_h];
+      });
+```
+
+For light, deep and REM stacked, give each its own series with the same
+generator and set `stacked: true`. ApexCharts stacks columns by position,
+so every series needs the same nights: keep nights with no REM as 0
+rather than leaving them out.
 
 ## Polling
 
