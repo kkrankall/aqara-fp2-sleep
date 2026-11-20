@@ -1,13 +1,13 @@
 /*
  * Aqara FP2 Sleep card (custom:fp2-sleep-card).
  *
- * One night at a glance: time asleep, a hypnogram of the night's stages by
- * Aqara's own times, the stage breakdown, and heart rate, breathing and
- * movement through the night. Finds the FP2 Sleep integration's entities by
+ * One night at a glance: the sleep score for the sleeper's age, time asleep,
+ * a hypnogram of the night's stages by Aqara's own times, the stage
+ * breakdown, and heart rate, breathing and movement through the night. Finds the FP2 Sleep integration's entities by
  * itself; also works with the SleepRadar app's aqara_fp2_sleep_* entities.
  */
 
-const CARD_VERSION = "0.1.0";
+const CARD_VERSION = "0.2.0";
 const DOMAIN = "fp2_sleep";
 const DEFAULT_PREFIX = "aqara_fp2_sleep";
 const HISTORY_REFRESH_MS = 5 * 60 * 1000;
@@ -45,6 +45,15 @@ const KEYS = [
   "fp2_mode",
   "fp2_online",
   "connection_problem",
+  "sleep_score",
+  "sleep_debt",
+];
+// The sleep score's parts, in the integration's order.
+const SCORE_PARTS = [
+  ["duration", "Enough sleep", "Time asleep against the hours recommended for the age"],
+  ["regularity", "Regular bedtime", "Fell asleep near the usual time of the week before"],
+  ["settling", "Settling", "Time from getting into bed to falling asleep"],
+  ["continuity", "Unbroken", "Time asleep out of the time from falling asleep to waking"],
 ];
 const BINARY_KEYS = new Set(["fp2_online", "connection_problem"]);
 
@@ -202,6 +211,45 @@ function numericSeries(points) {
   return out;
 }
 
+function isNumber(value) {
+  return typeof value === "number" && isFinite(value);
+}
+
+/* good / fair / low, for the score's colour. */
+function scoreBand(score) {
+  if (!isNumber(score)) return null;
+  if (score >= 85) return "good";
+  if (score >= 70) return "fair";
+  return "low";
+}
+
+function formatAge(months) {
+  if (!isNumber(months)) return null;
+  if (months < 24) return `${months} month${months === 1 ? "" : "s"}`;
+  return `age ${Math.floor(months / 12)}`;
+}
+
+function formatHoursRange(low, high) {
+  if (!isNumber(low) || !isNumber(high)) return null;
+  return `${Number(low)}–${Number(high)} h`;
+}
+
+/* What each part of the score measured, in words, from its attributes. */
+function scoreDetails(attributes) {
+  const a = attributes || {};
+  const shift = a.bedtime_shift_min;
+  return {
+    duration: isNumber(a.asleep_h) ? formatDuration(a.asleep_h) : null,
+    regularity: !isNumber(shift)
+        ? null
+        : Math.abs(shift) < 1
+          ? "on time"
+          : `${formatDuration(Math.abs(shift) / 60)} ${shift > 0 ? "late" : "early"}`,
+    settling: isNumber(a.settle_min) ? `${Math.round(a.settle_min)} min` : null,
+    continuity: isNumber(a.efficiency) ? `${Math.round(a.efficiency)}%` : null,
+  };
+}
+
 function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
@@ -219,6 +267,9 @@ const STYLE = `
     --fp2-heart: #ef5350;
     --fp2-breath: #29b6f6;
     --fp2-move: #ffa726;
+    --fp2-good: #43a047;
+    --fp2-fair: #f9a825;
+    --fp2-low: #ff7043;
     --fp2-muted: var(--secondary-text-color);
     --fp2-line: var(--divider-color, rgba(127, 127, 127, 0.2));
   }
@@ -235,7 +286,14 @@ const STYLE = `
   @media (prefers-reduced-motion: reduce) { .pill.live .dot { animation: none; } }
 
   .hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 14px 0 6px; }
-  .big { font-size: 34px; line-height: 1.1; font-weight: 600; letter-spacing: -0.5px; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+  .lead { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .ring { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .ring .dial { position: relative; width: 64px; height: 64px; }
+  .ring svg { display: block; width: 64px; height: 64px; transform: rotate(-90deg); }
+  .ring b { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            font-size: 21px; font-weight: 700; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
+  .ring span { font-size: 11px; color: var(--fp2-muted); white-space: nowrap; }
+  .big { white-space: nowrap; font-size: 34px; line-height: 1.1; font-weight: 600; letter-spacing: -0.5px; color: var(--primary-text-color); font-variant-numeric: tabular-nums; }
   .big small { font-size: 15px; font-weight: 500; color: var(--fp2-muted); margin-left: 6px; letter-spacing: 0; }
   .sub { margin-top: 4px; font-size: 13px; color: var(--fp2-muted); }
   .times { flex: none; display: grid; grid-template-columns: auto auto; column-gap: 12px; row-gap: 4px; align-items: baseline; }
@@ -266,16 +324,32 @@ const STYLE = `
   .vital svg { display: block; width: 100%; height: 30px; margin-top: 4px; }
   .vital .r { font-size: 11px; color: var(--fp2-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+  .score { margin-top: 16px; }
+  .score .h { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--fp2-muted); margin-bottom: 8px; }
+  .score .h b { font-weight: 500; color: var(--primary-text-color); }
+  .parts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .part { min-width: 0; }
+  .part .k { font-size: 12px; color: var(--fp2-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .part .m { height: 4px; border-radius: 2px; background: var(--fp2-line); margin: 5px 0 4px; overflow: hidden; }
+  .part .m i { display: block; height: 100%; border-radius: 2px; background: var(--c); }
+  .part .d { font-size: 12px; color: var(--fp2-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .part .d b { font-size: 13px; font-weight: 600; color: var(--primary-text-color); }
+
   .foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; font-size: 11px; color: var(--fp2-muted); }
 
   @container (max-width: 380px) {
-    .legend { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
+    .legend, .parts { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
+    .ring .dial, .ring svg { width: 54px; height: 54px; }
+    .ring b { font-size: 18px; }
+    .lead { gap: 12px; }
+    .hero { flex-wrap: wrap; row-gap: 10px; }
+    .times { grid-template-columns: auto auto auto auto; column-gap: 8px; }
+    .times b { text-align: left; margin-right: 8px; }
     .vitals { grid-template-columns: 1fr; }
     .vital { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; column-gap: 12px; }
     .vital .k, .vital .v, .vital .r { grid-column: 1; }
     .vital svg { grid-column: 2; grid-row: 1 / span 3; margin: 0; height: 40px; }
     .big { font-size: 30px; }
-    .times { column-gap: 8px; }
     .times b { font-size: 14px; }
   }
 `;
@@ -286,10 +360,16 @@ class FP2SleepCard extends HTMLElement {
       schema: [
         { name: "name", selector: { text: {} } },
         { name: "device_id", selector: { device: { integration: DOMAIN } } },
+        { name: "show_score", default: true, selector: { boolean: {} } },
         { name: "show_vitals", default: true, selector: { boolean: {} } },
       ],
       computeLabel: (schema) =>
-        ({ name: "Title", device_id: "FP2 (optional)", show_vitals: "Show heart rate, breathing and movement" })[schema.name],
+        ({
+          name: "Title",
+          device_id: "FP2 (optional)",
+          show_score: "Show the sleep score",
+          show_vitals: "Show heart rate, breathing and movement",
+        })[schema.name],
     };
   }
 
@@ -301,7 +381,7 @@ class FP2SleepCard extends HTMLElement {
     if (config && config.entities && typeof config.entities !== "object") {
       throw new Error("entities must map keys to entity ids");
     }
-    this._config = { show_vitals: true, ...(config || {}) };
+    this._config = { show_vitals: true, show_score: true, ...(config || {}) };
     this._historyKey = null;
     this._render();
   }
@@ -324,7 +404,8 @@ class FP2SleepCard extends HTMLElement {
   }
 
   getCardSize() {
-    return this._config && this._config.show_vitals === false ? 5 : 7;
+    const config = this._config || {};
+    return (config.show_vitals === false ? 5 : 7) + (config.show_score === false ? 0 : 1);
   }
 
   getGridOptions() {
@@ -472,6 +553,7 @@ class FP2SleepCard extends HTMLElement {
         ${this._hero(totals, sleepStart, sleepEnd, wakeUps, night)}
         ${this._hypnogram(night, now, exact)}
         ${this._breakdown(totals)}
+        ${this._scoreParts()}
         ${this._config.show_vitals === false ? "" : this._vitals()}
         ${this._footer(now, exact)}
       </ha-card>`;
@@ -503,8 +585,80 @@ class FP2SleepCard extends HTMLElement {
     return pills.join("");
   }
 
+  /* The score sensor's state and attributes, when it has a score to show
+   * and the card is set to show it; `tonight` when it is this card's night
+   * (else it is last night's, shown until tonight is over). */
+  _score() {
+    if (this._config.show_score === false) return null;
+    const state = this._state("sleep_score");
+    const value = state ? Number(state.state) : NaN;
+    if (!state || state.state === "" || !isFinite(value)) return null;
+    const attributes = state.attributes || {};
+    const asleep = this._state("night_asleep");
+    const tonight = Boolean(asleep && asleep.attributes && attributes.night_start === asleep.attributes.night_start);
+    return { value: Math.round(value), attributes, tonight };
+  }
+
+  _ring(score) {
+    if (!score) return "";
+    const band = scoreBand(score.value);
+    const r = 27;
+    const c = 2 * Math.PI * r;
+    const filled = Math.max(0, Math.min(100, score.value)) / 100;
+    const label = score.tonight ? "Sleep score" : "Last night";
+    return `<div class="ring" title="${escapeHtml(`${label}: ${score.value} out of 100`)}">
+      <div class="dial">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle cx="32" cy="32" r="${r}" fill="none" stroke="var(--fp2-line)" stroke-width="6"/>
+          <circle cx="32" cy="32" r="${r}" fill="none" stroke="var(--fp2-${band})" stroke-width="6" stroke-linecap="round"
+                  stroke-dasharray="${(c * filled).toFixed(2)} ${c.toFixed(2)}"/>
+        </svg>
+        <b>${score.value}</b>
+      </div>
+      <span>${label}</span>
+    </div>`;
+  }
+
+  /* "Needs 9–12 h at age 8 · 1h 40m short this week" */
+  _need(score) {
+    if (!score) return "";
+    const a = score.attributes;
+    const range = formatHoursRange(a.recommended_min_h, a.recommended_max_h);
+    if (!range) return "";
+    const age = formatAge(a.age_months);
+    const parts = [age ? `Needs ${range} at ${age}` : `Needs ${range}`];
+    const debt = this._number("sleep_debt");
+    if (debt !== null && debt >= 1 / 60) parts.push(`${formatDuration(debt)} short this week`);
+    return `<div class="sub" title="Recommended hours of sleep per day for the age; short this week is the time below that over the last 7 nights">${escapeHtml(parts.join(" · "))}</div>`;
+  }
+
+  _scoreParts() {
+    const score = this._score();
+    const points = score && score.attributes.points;
+    if (!points || !Object.keys(points).length) return "";
+    const possible = score.attributes.points_possible || {};
+    const details = scoreDetails(score.attributes);
+    const items = SCORE_PARTS.filter(([key]) => key in points)
+      .map(([key, label, help]) => {
+        const got = Number(points[key]);
+        const of = Number(possible[key]) || 0;
+        const share = of > 0 ? Math.max(0, Math.min(1, got / of)) : 0;
+        const band = scoreBand(share * 100);
+        const detail = details[key] ? `${escapeHtml(details[key])} · ` : "";
+        return `<div class="part" style="--c: var(--fp2-${band})" title="${escapeHtml(help)}">
+          <div class="k">${label}</div>
+          <div class="m"><i style="width:${(share * 100).toFixed(1)}%"></i></div>
+          <div class="d">${detail}<b>${Math.round(got)}</b>/${of}</div>
+        </div>`;
+      })
+      .join("");
+    const when = score.tonight ? "" : `<span>Last night</span>`;
+    return `<div class="score"><div class="h"><b>Sleep score ${score.value}</b>${when}</div><div class="parts">${items}</div></div>`;
+  }
+
   _hero(totals, sleepStart, sleepEnd, wakeUps, night) {
     const hass = this._hass;
+    const score = this._score();
     const parts = [];
     if (!sleepStart) parts.push("No sleep recorded yet tonight");
     else {
@@ -519,9 +673,13 @@ class FP2SleepCard extends HTMLElement {
       : "";
     return `
       <div class="hero">
-        <div>
-          <div class="big">${formatDuration(totals.asleep)}<small>asleep</small></div>
-          <div class="sub" title="Efficiency: time asleep out of the time between falling asleep and waking">${escapeHtml(parts.join(" · "))}</div>
+        <div class="lead">
+          ${this._ring(score)}
+          <div>
+            <div class="big">${formatDuration(totals.asleep)}<small>asleep</small></div>
+            <div class="sub" title="Efficiency: time asleep out of the time between falling asleep and waking">${escapeHtml(parts.join(" · "))}</div>
+            ${this._need(score)}
+          </div>
         </div>
         ${times}
       </div>`;
@@ -685,7 +843,7 @@ if (typeof customElements !== "undefined" && !customElements.get("fp2-sleep-card
   window.customCards.push({
     type: "fp2-sleep-card",
     name: "Aqara FP2 Sleep",
-    description: "A night's sleep from an Aqara FP2: time asleep, stages, heart rate and breathing.",
+    description: "A night's sleep from an Aqara FP2: sleep score, time asleep, stages, heart rate and breathing.",
     preview: true,
     documentationURL: "https://github.com/kkrankall/aqara-fp2-sleep",
   });
@@ -693,5 +851,17 @@ if (typeof customElements !== "undefined" && !customElements.get("fp2-sleep-card
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { analyzeNight, changesFromAttribute, changesFromHistory, formatDuration, stageOf, nightStart, numericSeries };
+  module.exports = {
+    analyzeNight,
+    changesFromAttribute,
+    changesFromHistory,
+    formatAge,
+    formatDuration,
+    formatHoursRange,
+    nightStart,
+    numericSeries,
+    scoreBand,
+    scoreDetails,
+    stageOf,
+  };
 }

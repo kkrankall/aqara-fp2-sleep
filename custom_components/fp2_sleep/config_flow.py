@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import date
 from typing import Any
 
 import voluptuous as vol
@@ -11,7 +12,9 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResu
 from homeassistant.const import CONF_PASSWORD
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.selector import (
+    DateSelector,
     EntitySelector,
     EntitySelectorConfig,
     SelectOptionDict,
@@ -35,6 +38,7 @@ from .api import (
 )
 from .const import (
     CONF_ACCOUNT,
+    CONF_BIRTH_DATE,
     CONF_DEVICE_ID,
     CONF_PASSWORD_MD5,
     CONF_PHONE_ID,
@@ -236,19 +240,34 @@ class FP2SleepConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class FP2SleepOptionsFlow(OptionsFlow):
-    """Poll by a local presence sensor instead of the clock."""
+    """The sleeper's birth date, for the sleep score, and polling by a local
+    presence sensor instead of the clock."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            birth = user_input.get(CONF_BIRTH_DATE)
+            try:
+                born = date.fromisoformat(birth) if birth else None
+            except ValueError:
+                born = None
+                errors[CONF_BIRTH_DATE] = "invalid_birth_date"
+            if born and born > dt_util.now().date():
+                errors[CONF_BIRTH_DATE] = "invalid_birth_date"
+            if not errors:
+                return self.async_create_entry(data=user_input)
         schema = vol.Schema(
             {
+                vol.Optional(CONF_BIRTH_DATE): DateSelector(),
                 vol.Optional(CONF_PRESENCE_ENTITY): EntitySelector(
                     EntitySelectorConfig(domain="binary_sensor")
-                )
+                ),
             }
         )
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(schema, self.config_entry.options),
+            data_schema=self.add_suggested_values_to_schema(
+                schema, user_input if user_input is not None else self.config_entry.options
+            ),
+            errors=errors,
         )

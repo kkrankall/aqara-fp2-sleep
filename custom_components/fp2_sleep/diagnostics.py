@@ -7,11 +7,12 @@ from typing import Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_ACCOUNT, CONF_DEVICE_ID, CONF_PASSWORD_MD5, CONF_PHONE_ID
+from .const import CONF_ACCOUNT, CONF_BIRTH_DATE, CONF_DEVICE_ID, CONF_PASSWORD_MD5, CONF_PHONE_ID
 from .coordinator import FP2ConfigEntry
 
 TO_REDACT = {
     CONF_ACCOUNT,
+    CONF_BIRTH_DATE,
     CONF_PASSWORD_MD5,
     CONF_PHONE_ID,
     CONF_DEVICE_ID,
@@ -32,6 +33,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: FP2Conf
     coordinator = entry.runtime_data
     data = coordinator.data
     night = data.night if data else None
+    latest = data.sleep.latest if data and data.sleep else None
     return {
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
         "region": coordinator.client.region,
@@ -48,5 +50,13 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: FP2Conf
             "awakenings": night.awakenings,
         }
         if night
+        else None,
+        "night_log": len(coordinator.night_log),
+        "latest_score": {
+            "score": latest.score,
+            "points": latest.points,
+            "age_band_h": [latest.low, latest.high],
+        }
+        if latest
         else None,
     }

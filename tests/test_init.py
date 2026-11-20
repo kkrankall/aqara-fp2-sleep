@@ -16,6 +16,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, async_
 from custom_components.fp2_sleep.api import password_md5
 from custom_components.fp2_sleep.const import (
     CONF_ACCOUNT,
+    CONF_BIRTH_DATE,
     CONF_PRESENCE_ENTITY,
     CONF_DEVICE_ID,
     CONF_PASSWORD_MD5,
@@ -37,10 +38,17 @@ def at(hour: int, minute: int = 0) -> datetime:
 ROOM = "binary_sensor.bedroom_presence"
 
 
-async def setup_entry(hass: HomeAssistant, aqara, freezer: FrozenDateTimeFactory, options=None) -> MockConfigEntry:
+async def setup_entry(
+    hass: HomeAssistant,
+    aqara,
+    freezer: FrozenDateTimeFactory,
+    options=None,
+    when: datetime | None = None,
+    log: list[tuple[int, int]] | None = None,
+) -> MockConfigEntry:
     await hass.config.async_set_time_zone("America/New_York")
-    freezer.move_to(at(3))
-    aqara.stage_log = [(ms(at(20, 30)), 4), (ms(at(23, 40)), 5), (ms(at(0, 32)), 4), (ms(at(2, 0)), 2), (ms(at(2, 10)), 4)]
+    freezer.move_to(when or at(3))
+    aqara.stage_log = log or [(ms(at(20, 30)), 4), (ms(at(23, 40)), 5), (ms(at(0, 32)), 4), (ms(at(2, 0)), 2), (ms(at(2, 10)), 4)]
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=DID,
@@ -83,6 +91,8 @@ async def test_entities_keep_sleepradars_ids(hass: HomeAssistant, entry) -> None
             "sensor.aqara_fp2_sleep_night_light_sleep",
             "sensor.aqara_fp2_sleep_night_rem_sleep",
             "sensor.aqara_fp2_sleep_respiration_rate",
+            "sensor.aqara_fp2_sleep_sleep_debt",
+            "sensor.aqara_fp2_sleep_sleep_score",
             "sensor.aqara_fp2_sleep_sleep_stage",
             "sensor.aqara_fp2_sleep_sleep_state",
             "sensor.aqara_fp2_sleep_woke_up",
@@ -268,3 +278,56 @@ async def test_options_set_the_presence_sensor(hass: HomeAssistant, entry, aqara
     result = await hass.config_entries.options.async_configure(result["flow_id"], {})
     await hass.async_block_till_done()
     assert entry.runtime_data.presence_entity is None
+
+
+async def test_sleep_score_once_the_night_is_over(hass: HomeAssistant, entry, aqara, freezer, hass_storage) -> None:
+    assert hass.states.get("sensor.aqara_fp2_sleep_sleep_score").state == "unknown"  # asleep
+    aqara.stage_log.append((ms(at(6, 0)), 0))
+    await tick(hass, freezer, timedelta(hours=3, minutes=10))  # 06:10, up 10 minutes
+    assert hass.states.get("sensor.aqara_fp2_sleep_sleep_score").state == "unknown"
+    await tick(hass, freezer, timedelta(hours=1))  # 07:10
+    score = hass.states.get("sensor.aqara_fp2_sleep_sleep_score")
+    # 9 h 20 m asleep, 20 minutes over the adult range; nothing to settle from,
+    # no week of bedtimes yet: duration and continuity only.
+    assert score.state == str(round(100 * (50 * (13 - 28 / 3) / 4 + 20) / 70))
+    assert score.attributes["date"] == "2026-11-19"
+    assert score.attributes["recommended_min_h"] == 7 and score.attributes["recommended_max_h"] == 9
+    assert score.attributes["age_months"] is None
+    assert set(score.attributes["points"]) == {"duration", "continuity"}
+    assert score.attributes["points_possible"] == {"duration": 50, "continuity": 20}
+    assert score.attributes["nights"] == [
+        {"date": "2026-11-19", "score": int(score.state), "asleep_h": round(28 / 3, 3), "min_h": 7, "max_h": 9}
+    ]
+    assert hass.states.get("sensor.aqara_fp2_sleep_sleep_debt").state == "0.0"
+    saved = hass_storage[f"{DOMAIN}.{entry.entry_id}"]["data"]
+    assert list(saved["nights"]) == [at(18).replace(day=18).isoformat()]
+    assert saved["token"]  # the session is still there
+
+    # A child's birth date: 9-12 h for an 8-year-old, so 9 h 20 m is enough.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    await hass.config_entries.options.async_configure(result["flow_id"], {CONF_BIRTH_DATE: "2018-03-10"})
+    await hass.async_block_till_done()
+    score = hass.states.get("sensor.aqara_fp2_sleep_sleep_score")
+    assert score.state == "100"  # the log came back from storage after the reload
+    assert score.attributes["age_months"] == 104
+    assert (score.attributes["recommended_min_h"], score.attributes["recommended_max_h"]) == (9, 12)
+
+    # The next evening the score stays on last night's until tonight is over.
+    await tick(hass, freezer, timedelta(hours=12))  # 19:10
+    assert hass.states.get("sensor.aqara_fp2_sleep_sleep_score").state == "100"
+
+
+async def test_last_night_is_caught_up_after_a_restart(hass: HomeAssistant, aqara, freezer) -> None:
+    evening = datetime(2026, 11, 19, 19, 30, tzinfo=TZ)
+    # Home Assistant was down through the morning: last night is read whole.
+    await setup_entry(hass, aqara, freezer, when=evening, log=[(ms(at(20, 30)), 4), (ms(at(6, 0)), 0)])
+    score = hass.states.get("sensor.aqara_fp2_sleep_sleep_score")
+    assert score.attributes["date"] == "2026-11-19"
+    assert score.attributes["asleep_h"] == 9.5
+    assert hass.states.get("sensor.aqara_fp2_sleep_night_asleep").state == "0.0"  # tonight
+
+
+async def test_options_reject_a_future_birth_date(hass: HomeAssistant, entry) -> None:
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {CONF_BIRTH_DATE: "2027-01-01"})
+    assert result["errors"] == {CONF_BIRTH_DATE: "invalid_birth_date"}

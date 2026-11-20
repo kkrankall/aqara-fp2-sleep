@@ -50,6 +50,12 @@
       "woke_up": {
         "default": "mdi:weather-sunset-up"
       },
+      "sleep_score": {
+        "default": "mdi:star-circle-outline"
+      },
+      "sleep_debt": {
+        "default": "mdi:timer-sand"
+      },
       "fp2_mode": {
         "default": "mdi:radar"
       }

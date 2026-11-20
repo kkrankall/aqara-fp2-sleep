@@ -28,6 +28,10 @@ from .const import (
 from .coordinator import FP2ConfigEntry, FP2Coordinator, FP2Data, mode_code
 from .entity import FP2Entity
 from .night import code_string
+from .score import WEIGHTS
+
+# Nights listed in the sleep score's `nights` attribute, for charts.
+SCORE_HISTORY_NIGHTS = 30
 
 
 def _number(raw: Any) -> float | int | None:
@@ -74,6 +78,52 @@ def _night_attributes(data: FP2Data) -> dict[str, Any]:
             for time, code in night.stages
         ],
     }
+
+
+def _score(data: FP2Data) -> int | None:
+    latest = data.sleep.latest if data.sleep else None
+    return latest.score if latest else None
+
+
+def _score_attributes(data: FP2Data) -> dict[str, Any]:
+    latest = data.sleep.latest if data.sleep else None
+    if latest is None:
+        return {}
+    facts = latest.facts
+    return {
+        "night_start": facts["start"],
+        "date": latest.date.isoformat(),
+        "age_months": latest.age_months,
+        "recommended_min_h": latest.low,
+        "recommended_max_h": latest.high,
+        "asleep_h": facts["asleep_h"],
+        "sleep_start": facts["sleep_start"],
+        "sleep_end": facts["sleep_end"],
+        "efficiency": round(facts["efficiency"] * 100),
+        "wake_ups": facts["wake_ups"],
+        "settle_min": facts["settle_min"],
+        "bedtime_shift_min": latest.bedtime_shift_min,
+        "points": latest.points,
+        "points_possible": {key: WEIGHTS[key] for key in latest.points},
+        # Recent nights for charts. Not recorded (see _unrecorded_attributes).
+        "nights": [
+            {
+                "date": night.date.isoformat(),
+                "score": night.score,
+                "asleep_h": night.facts["asleep_h"],
+                "min_h": night.low,
+                "max_h": night.high,
+            }
+            for night in data.sleep.nights[-SCORE_HISTORY_NIGHTS:]
+        ],
+    }
+
+
+def _debt_attributes(data: FP2Data) -> dict[str, Any]:
+    latest = data.sleep.latest if data.sleep else None
+    if latest is None:
+        return {}
+    return {"recommended_min_h": latest.low}
 
 
 NIGHT_HOURS = dict(
@@ -169,6 +219,20 @@ SENSORS: tuple[FP2SensorDescription, ...] = (
         value=lambda data: data.night.sleep_end if data.night else None,
     ),
     FP2SensorDescription(
+        key="sleep_score",
+        translation_key="sleep_score",
+        state_class=SensorStateClass.MEASUREMENT,
+        value=_score,
+        attributes=_score_attributes,
+    ),
+    FP2SensorDescription(
+        key="sleep_debt",
+        translation_key="sleep_debt",
+        value=lambda data: data.sleep.debt if data.sleep else None,
+        attributes=_debt_attributes,
+        **NIGHT_HOURS,
+    ),
+    FP2SensorDescription(
         key="fp2_mode",
         translation_key="fp2_mode",
         device_class=SensorDeviceClass.ENUM,
@@ -188,7 +252,7 @@ async def async_setup_entry(
 
 class FP2Sensor(FP2Entity, SensorEntity):
     entity_description: FP2SensorDescription
-    _unrecorded_attributes = frozenset({"stages"})
+    _unrecorded_attributes = frozenset({"stages", "nights"})
 
     def __init__(self, coordinator: FP2Coordinator, description: FP2SensorDescription) -> None:
         super().__init__(coordinator, description, "sensor")

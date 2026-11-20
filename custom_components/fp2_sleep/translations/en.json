@@ -108,6 +108,12 @@
       "woke_up": {
         "name": "Woke up"
       },
+      "sleep_score": {
+        "name": "Sleep score"
+      },
+      "sleep_debt": {
+        "name": "Sleep debt"
+      },
       "fp2_mode": {
         "name": "FP2 mode",
         "state": {
@@ -127,21 +133,26 @@
   "options": {
     "step": {
       "init": {
-        "title": "Polling",
-        "description": "Without a presence sensor, Aqara is polled every minute from 6 PM to noon and while someone is in bed, and every 5 minutes otherwise. With one, it is polled every minute while the sensor sees someone and for 30 minutes after, and every 30 minutes while the room is empty. Night totals stay exact either way: they come from Aqara's own log.",
+        "title": "Sleep score and polling",
+        "description": "The sleep score compares each night with the hours of sleep recommended for the sleeper's age (American Academy of Sleep Medicine for children, National Sleep Foundation for adults). Without a birth date it uses the adult range, 7–9 hours.\n\nWithout a presence sensor, Aqara is polled every minute from 6 PM to noon and while someone is in bed, and every 5 minutes otherwise. With one, it is polled every minute while the sensor sees someone and for 30 minutes after, and every 30 minutes while the room is empty. Night totals stay exact either way: they come from Aqara's own log.",
         "data": {
+          "birth_date": "Birth date",
           "presence_entity": "Presence sensor to follow"
         },
         "data_description": {
+          "birth_date": "Of the person who sleeps in this bed. Only the age is used, and the date stays in Home Assistant.",
           "presence_entity": "A local sensor for the same room, such as the FP2's presence sensor in HomeKit. If it becomes unavailable, polling continues as if someone were there."
         }
       }
+    },
+    "error": {
+      "invalid_birth_date": "Enter a date that isn't in the future."
     }
   },
   "services": {
     "import_history": {
       "name": "Import past nights",
-      "description": "Reads past nights' sleep stages from Aqara's history (it keeps about two weeks) and adds their night totals to the long-term statistics, so charts of past nights fill in. Hours that already have statistics are left as they are.",
+      "description": "Reads past nights' sleep stages from Aqara's history (it keeps about two weeks), adds their night totals to the long-term statistics so charts of past nights fill in, and scores them. Hours that already have statistics are left as they are.",
       "fields": {
         "nights": {
           "name": "Nights",

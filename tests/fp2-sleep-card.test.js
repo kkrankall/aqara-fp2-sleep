@@ -71,4 +71,27 @@ const fromHistory = card.changesFromHistory([
 ]);
 assert.deepEqual(plain(fromHistory.map((c) => c.stage)), ["light", "deep"]);
 assert.deepEqual(plain(card.numericSeries([{ s: "66", lu: 1 }, { s: "unknown", lu: 2 }, { s: "", lu: 3 }])), [[1000, 66]]);
+
+// The sleep score's helpers.
+assert.equal(card.scoreBand(92), "good");
+assert.equal(card.scoreBand(85), "good");
+assert.equal(card.scoreBand(70), "fair");
+assert.equal(card.scoreBand(69), "low");
+assert.equal(card.scoreBand(null), null);
+assert.equal(card.formatAge(104), "age 8");
+assert.equal(card.formatAge(18), "18 months");
+assert.equal(card.formatAge(1), "1 month");
+assert.equal(card.formatAge(null), null);
+assert.equal(card.formatHoursRange(9, 12), "9–12 h");
+assert.equal(card.formatHoursRange(null, 12), null);
+assert.deepEqual(
+  plain(card.scoreDetails({ asleep_h: 7.926, bedtime_shift_min: 42, settle_min: 32.5, efficiency: 86 })),
+  { duration: "7h 56m", regularity: "42m late", settling: "33 min", continuity: "86%" },
+);
+assert.deepEqual(
+  plain(card.scoreDetails({ asleep_h: 10, bedtime_shift_min: -75, settle_min: null })),
+  { duration: "10h", regularity: "1h 15m early", settling: null, continuity: null },
+);
+assert.equal(card.scoreDetails({ bedtime_shift_min: 0.4 }).regularity, "on time");
+
 console.log("fp2-sleep-card tests OK");

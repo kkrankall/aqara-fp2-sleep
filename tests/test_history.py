@@ -76,6 +76,15 @@ async def test_import_fills_past_nights(recorder_mock, hass: HomeAssistant, aqar
         assert nights[night]["deep_h"] == round(52 / 60, 4)
         assert nights[night]["rem_h"] == 0
         assert nights[night]["hours_imported"] == 4 * 24
+        # 30 minutes over the adult range, asleep the whole time; nothing
+        # to settle from and too few nights for a usual bedtime.
+        assert nights[night]["score"] == round(100 * (50 * 3.5 / 4 + 20) / 70)
+    assert "score" not in nights["2026-11-15"]
+    log = {key: dict(facts) for key, facts in entry.runtime_data.night_log.items()}
+    assert sorted(key[:10] for key in log) == ["2026-11-16", "2026-11-17"]
+    score = hass.states.get("sensor.aqara_fp2_sleep_sleep_score")
+    assert score.attributes["date"] == "2026-11-18"
+    assert [n["date"] for n in score.attributes["nights"]] == ["2026-11-17", "2026-11-18"]
 
     await async_wait_recording_done(hass)
     asleep = await daily_max(hass, "sensor.aqara_fp2_sleep_night_asleep")
@@ -90,6 +99,7 @@ async def test_import_fills_past_nights(recorder_mock, hass: HomeAssistant, aqar
         DOMAIN, "import_history", {"nights": 2}, blocking=True, return_response=True
     )
     assert all(n["hours_imported"] == 0 for n in result["entries"][0]["nights"])
+    assert entry.runtime_data.night_log == log  # nights already logged are kept
     await async_wait_recording_done(hass)
     assert (await daily_max(hass, "sensor.aqara_fp2_sleep_night_deep_sleep"))["2026-11-18"] == round(52 / 60, 4)
 

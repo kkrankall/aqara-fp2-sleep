@@ -1,9 +1,10 @@
-"""Import past nights' totals into long-term statistics.
+"""Import past nights' totals into long-term statistics and the night log.
 
 This reads each past night's stage changes from Aqara's history log and
 writes the hourly statistics the night-total sensors would have recorded,
-so charts of past nights start filled in. Hours that already have
-statistics are left as they are.
+so charts of past nights start filled in, and adds the night to the log the
+sleep score is worked out from. Hours that already have statistics, and
+nights already in the log, are left as they are.
 
 Aqara keeps about two weeks of history. A night is imported only when the
 log also holds stage changes from the 24 hours before it, which shows the
@@ -33,6 +34,7 @@ from homeassistant.util import dt as dt_util
 from .const import DOMAIN, SLEEP_STATE_RESOURCE
 from .coordinator import FP2Coordinator
 from .night import TOTALS, NightStages, hourly_values, night_start
+from .score import night_facts
 
 # Night-total entity key -> TOTALS key.
 NIGHT_SENSORS = {
@@ -78,10 +80,9 @@ async def import_past_nights(
     """Import up to `nights` past nights; returns what was done per night."""
     now = now or dt_util.now()
     ids = _entity_ids(hass, coordinator)
-    if not ids:
-        return []
     tonight = night_start(now)
     report = []
+    logged = False
     for back in range(min(nights, MAX_NIGHTS), 0, -1):
         start = night_start(tonight - timedelta(days=back) + timedelta(hours=1))
         end = start + timedelta(days=1)  # wall-clock: 18:00 the next day
@@ -108,6 +109,8 @@ async def import_past_nights(
         if not covered:
             entry["skipped"] = "Aqara's history may not cover the whole night"
             continue
+        facts = night_facts(start, list(stages.events.items()), now.timestamp(), final=True)
+        logged |= coordinator.record_night(facts, replace=False)
 
         existing = await _existing_hours(hass, set(ids.values()), start, end)
         imported = 0
@@ -133,4 +136,11 @@ async def import_past_nights(
             async_import_statistics(hass, metadata, new)
             imported += len(new)
         entry["hours_imported"] = imported
+
+    if logged:
+        coordinator.night_log_changed()
+    scores = {night.facts["start"][:10]: night.score for night in coordinator.scores().nights}
+    for entry in report:
+        if "skipped" not in entry and entry["night"] in scores:
+            entry["score"] = scores[entry["night"]]
     return report

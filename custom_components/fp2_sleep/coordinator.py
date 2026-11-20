@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -21,6 +21,7 @@ from .const import (
     ATTR_MODE,
     ATTR_ONLINE,
     ATTR_SLEEP_STATE,
+    CONF_BIRTH_DATE,
     CONF_DEVICE_ID,
     CONF_PRESENCE_ENTITY,
     DEVICE_REFRESH,
@@ -40,10 +41,25 @@ from .const import (
     SLOW_INTERVAL,
 )
 from .night import NightStages, NightSummary, aqara_time, code_string, night_start
+from .score import ScoredNight, night_facts, prune, score_log, sleep_debt
 
 type FP2ConfigEntry = ConfigEntry[FP2Coordinator]
 
 STORE_VERSION = 1
+# Reading a whole past night: larger windows than the live refresh.
+PAST_NIGHT_CHUNK_S = 12 * 3600
+
+
+@dataclass
+class SleepScores:
+    """The night log, scored for the sleeper's age."""
+
+    nights: list[ScoredNight]
+    debt: float | None
+
+    @property
+    def latest(self) -> ScoredNight | None:
+        return self.nights[-1] if self.nights else None
 
 
 @dataclass
@@ -53,6 +69,7 @@ class FP2Data:
     values: dict[str, Any] = field(default_factory=dict)          # attr -> raw value
     measured_at: dict[str, datetime | None] = field(default_factory=dict)
     night: NightSummary | None = None
+    sleep: SleepScores | None = None
 
 
 def mode_code(data: FP2Data) -> str | None:
@@ -79,7 +96,12 @@ class FP2Coordinator(DataUpdateCoordinator[FP2Data]):
         self._night = NightStages()
         self._night_read: datetime | None = None
         self._night_summary: NightSummary | None = None
-        self.store: Store[dict[str, str]] = Store(hass, STORE_VERSION, f"{DOMAIN}.{entry.entry_id}")
+        self.store: Store[dict[str, Any]] = Store(hass, STORE_VERSION, f"{DOMAIN}.{entry.entry_id}")
+        self._session: dict[str, str] = {}
+        # Night start (ISO) -> that night's facts, for the sleep score.
+        self.night_log: dict[str, dict[str, Any]] = {}
+        self._caught_up: datetime | None = None
+        self.birth_date: date | None = _date(entry.options.get(CONF_BIRTH_DATE))
         # Optional local presence sensor whose state decides how often to poll.
         self.presence_entity: str | None = entry.options.get(CONF_PRESENCE_ENTITY) or None
         self._absent_since: datetime | None = None
@@ -89,6 +111,9 @@ class FP2Coordinator(DataUpdateCoordinator[FP2Data]):
         if saved.get("token") and saved.get("user_id"):
             self.client.token = saved["token"]
             self.client.user_id = saved["user_id"]
+            self._session = {"token": saved["token"], "user_id": saved["user_id"]}
+        if isinstance(saved.get("nights"), dict):
+            self.night_log = saved["nights"]
         if self.presence_entity:
             state = self.hass.states.get(self.presence_entity)
             if state is not None and state.state == STATE_OFF:
@@ -133,7 +158,34 @@ class FP2Coordinator(DataUpdateCoordinator[FP2Data]):
 
     def save_session(self, token: str, user_id: str) -> None:
         """Keep the session across restarts, so HA doesn't sign in each start."""
-        self.hass.async_create_task(self.store.async_save({"token": token, "user_id": user_id}))
+        self._session = {"token": token, "user_id": user_id}
+        self._save()
+
+    def _save(self) -> None:
+        self.hass.async_create_task(
+            self.store.async_save({**self._session, "nights": self.night_log})
+        )
+
+    def record_night(self, facts: dict[str, Any] | None, replace: bool = True) -> bool:
+        """Put a night's facts in the log; True when the log changed."""
+        if facts is None or (not replace and facts["start"] in self.night_log):
+            return False
+        if self.night_log.get(facts["start"]) == facts:
+            return False
+        self.night_log[facts["start"]] = facts
+        prune(self.night_log)
+        return True
+
+    def scores(self) -> SleepScores:
+        nights = score_log(self.night_log, self.birth_date)
+        return SleepScores(nights=nights, debt=sleep_debt(nights))
+
+    def night_log_changed(self) -> None:
+        """Save the log and show the new scores (after an import)."""
+        self._save()
+        if self.data is not None:
+            self.data.sleep = self.scores()
+            self.async_update_listeners()
 
     async def _async_update_data(self) -> FP2Data:
         now = dt_util.now()
@@ -155,6 +207,7 @@ class FP2Coordinator(DataUpdateCoordinator[FP2Data]):
 
         await self._refresh_night(now)
         data.night = self._night_summary
+        data.sleep = self.scores()
         await self._refresh_device(now)
         self._update_mode_issue(mode_code(data))
 
@@ -169,12 +222,14 @@ class FP2Coordinator(DataUpdateCoordinator[FP2Data]):
         if not new_night and self._night_read and now - self._night_read < NIGHT_REFRESH:
             return
         self._night_read = now
+        previous = self._night_summary
 
         async def read(start_ms: int, end_ms: int) -> list[dict[str, Any]]:
             return await self.client.history_log(self.did, [SLEEP_STATE_RESOURCE], start_ms, end_ms)
 
         try:
             await self._night.update(read, now)
+            await self._catch_up_last_night(read, now, previous)
         except AqaraAuthError as err:
             raise ConfigEntryAuthFailed(f"Aqara refused the sign-in: {err}") from err
         except AqaraError as err:
@@ -186,6 +241,31 @@ class FP2Coordinator(DataUpdateCoordinator[FP2Data]):
             # Keep the last good summary through a failed read, but never
             # carry one into the next night.
             self._night_summary = summary
+
+        changed = False
+        if previous is not None and previous.start != self._night.start:
+            changed |= self.record_night(_facts(previous, now, final=True))  # the night just ended
+        if self._night_summary is not None:
+            changed |= self.record_night(_facts(self._night_summary, now))
+        if changed:
+            self._save()
+
+    async def _catch_up_last_night(self, read: Any, now: datetime, previous: NightSummary | None) -> None:
+        """After a restart, read last night whole if it never made the log
+        (Home Assistant was down through the morning)."""
+        tonight = night_start(now)
+        if self._caught_up == tonight:
+            return
+        last = night_start(tonight - timedelta(hours=1))
+        if (previous is not None and previous.start == last) or last.isoformat() in self.night_log:
+            self._caught_up = tonight
+            return
+        stages = NightStages()
+        if await stages.read_window(read, last.timestamp(), tonight.timestamp(), PAST_NIGHT_CHUNK_S):
+            self._caught_up = tonight
+            facts = night_facts(last, list(stages.events.items()), now.timestamp(), final=True)
+            if self.record_night(facts):
+                self._save()
 
     async def _refresh_device(self, now: datetime) -> None:
         if self._device_read and now - self._device_read < DEVICE_REFRESH:
@@ -235,3 +315,15 @@ class FP2Coordinator(DataUpdateCoordinator[FP2Data]):
             translation_key="not_sleep_mode",
             translation_placeholders={"name": self.config_entry.title},
         )
+
+
+def _facts(summary: NightSummary, now: datetime, final: bool = False) -> dict[str, Any] | None:
+    events = [(when.timestamp(), code) for when, code in summary.stages]
+    return night_facts(summary.start, events, now.timestamp(), final)
+
+
+def _date(raw: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(raw)) if raw else None
+    except ValueError:
+        return None

@@ -15,6 +15,8 @@ CONF_PHONE_ID = "phone_id"
 CONF_DEVICE_ID = "device_id"
 # Option: a local presence sensor (e.g. the FP2 over HomeKit) to poll by.
 CONF_PRESENCE_ENTITY = "presence_entity"
+# Option: the sleeper's birth date (YYYY-MM-DD), for the sleep score.
+CONF_BIRTH_DATE = "birth_date"
 
 # The FP2's model id in Aqara's device list.
 FP2_MODEL = "lumi.motion.agl001"
